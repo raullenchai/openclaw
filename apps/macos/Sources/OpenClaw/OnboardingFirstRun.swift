@@ -16,6 +16,23 @@ enum OnboardingFirstRun {
         let message: String?
     }
 
+    /// A Mac whose primary is its OpenClaw ID claw has nothing to set up here: the claw owns AI
+    /// and Gateway setup, which a member key cannot run. An unfinished first run (such as a join
+    /// interrupted before completion) finishes into the claw's dashboard. Returns whether it applied.
+    static func finishJoinedClaw(
+        joinedClaw: Bool,
+        onboardingSeen: Bool,
+        markComplete: () -> Void,
+        openDashboard: () -> Void) -> Bool
+    {
+        guard joinedClaw else { return false }
+        if !onboardingSeen {
+            markComplete()
+            openDashboard()
+        }
+        return true
+    }
+
     static func isFresh(
         isUnconfigured: Bool,
         onboardingSeen: Bool,

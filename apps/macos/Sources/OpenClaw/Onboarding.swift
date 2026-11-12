@@ -708,9 +708,13 @@ struct OnboardingView: View {
 
     static func pageOrder(
         for mode: AppState.ConnectionMode,
-        requiresCLIInstall: Bool) -> [Int]
+        requiresCLIInstall: Bool,
+        joinedClaw: Bool = false) -> [Int]
     {
-        switch mode {
+        // The OpenClaw ID claw owns its AI setup, which needs operator.admin a member key does
+        // not hold; there is no Gateway to find either.
+        if mode == .remote, joinedClaw { return [0, 1, 9] }
+        return switch mode {
         case .local:
             // Native onboarding ends once inference works: install (when
             // needed) plus AI setup. Successful first run lands in the normal dashboard.
@@ -739,7 +743,13 @@ struct OnboardingView: View {
     var pageOrder: [Int] {
         Self.pageOrder(
             for: self.selectedConnectionMode,
-            requiresCLIInstall: self.requiresLocalCLI && !self.cliInstalled)
+            requiresCLIInstall: self.requiresLocalCLI && !self.cliInstalled,
+            joinedClaw: self.primaryIsJoinedClaw)
+    }
+
+    var primaryIsJoinedClaw: Bool {
+        MacOpenClawIDJoinCompletion.primaryIsJoinedClaw(
+            mode: self.state.connectionMode, remoteUrl: self.state.remoteUrl)
     }
 
     var pageCount: Int {

@@ -582,6 +582,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let connectionMode = AppStateStore.shared.connectionMode
         let onboardingSeen = AppStateStore.shared.onboardingSeen
+        if OnboardingFirstRun.finishJoinedClaw(
+            joinedClaw: MacOpenClawIDJoinCompletion.primaryIsJoinedClaw(
+                mode: connectionMode, remoteUrl: AppStateStore.shared.remoteUrl),
+            onboardingSeen: onboardingSeen,
+            markComplete: { OnboardingController.markComplete() },
+            openDashboard: { AppNavigationActions.openDashboard() })
+        {
+            return
+        }
         if connectionMode != .unconfigured, onboardingSeen {
             OnboardingController.markComplete()
             return
