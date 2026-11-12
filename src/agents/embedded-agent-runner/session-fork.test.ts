@@ -347,6 +347,20 @@ it("uses the current prepared proxy and TLS transport policy", async () => {
   );
 });
 
+it("replays the parent's prepared request before the fork's rebuilt suffix", async () => {
+  const { streamFn, request } = guardedTransport();
+  const note: Message = { role: "user", content: "Runtime note", timestamp: 2 };
+  const call = (id: string) => [assistant([toolCall(id, "lookup")]), toolResult(id, "lookup", "1")];
+  await complete(streamFn, model, history(note, ...call("call_sent")));
+  const parent = await request().json();
+  // Rebuilt history orders the note first and keeps the ID the parent's stream rewrote.
+  const rebuilt = { ...context, messages: [note, ...context.messages, ...call("call_raw")] };
+  await fork(streamFn, model, rebuilt, { preparedRequest: parent });
+  const { input } = await request().json();
+  expect(input.slice(0, -1)).toEqual(parent.input);
+  expect(JSON.stringify(input.at(-1))).toContain("Review only");
+});
+
 it("rebuilds full history independently when the parent uses HTTP continuation", async () => {
   const { streamFn, request } = guardedTransport();
   const requestModel: Model = { ...model, compat: { supportsResponsesContinuation: true } };
@@ -357,9 +371,12 @@ it("rebuilds full history independently when the parent uses HTTP continuation",
   const continuation = await request().json();
   expect(continuation.previous_response_id).toBe("resp_fork");
   expect(JSON.stringify(continuation.input)).not.toContain("Parent question");
-  await expect(fork(streamFn, requestModel, prepared, { options })).resolves.toBe("Answer");
+  await expect(
+    fork(streamFn, requestModel, prepared, { options, preparedRequest: continuation }),
+  ).resolves.toBe("Answer");
   const replay = await request().json();
   expect(replay.previous_response_id).toBeUndefined();
+  expect(JSON.stringify(replay.input[0])).toContain("Parent question");
   expectText(JSON.stringify(replay.input), ["Parent question", "Continue parent", "Review only"]);
 });
 

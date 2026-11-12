@@ -39,12 +39,13 @@ function observe(
   promptState: ProviderPromptState,
   streamFn: StreamFn,
   recordEvent?: Parameters<typeof wrapStreamFnWithProviderPromptState>[0]["recordEvent"],
+  effectiveContextTokenBudget = 128_000,
 ) {
   return wrapStreamFnWithProviderPromptState({
     state: promptState,
     streamFn,
     recordEvent,
-    effectiveContextTokenBudget: 128_000,
+    effectiveContextTokenBudget,
   });
 }
 
@@ -73,15 +74,6 @@ function createResultStream(stopReason: "error" | "stop", errorMessage?: string)
 }
 
 describe("provider prompt state", () => {
-  it("keeps state within one run id and drops it at the run boundary", () => {
-    const first = getProviderPromptState("run-1");
-    expect(getProviderPromptState("run-1")).toBe(first);
-
-    clearProviderPromptState("run-1");
-    expect(getProviderPromptState("run-1")).not.toBe(first);
-    clearProviderPromptState("run-1");
-  });
-
   it("retains active run state until its owned cleanup", () => {
     const firstRunId = "active-run-0";
     const otherRunIds = Array.from({ length: 79 }, (_, index) => `active-run-${index + 1}`);
@@ -125,7 +117,10 @@ describe("provider prompt state", () => {
     await (await wrapped(model, { ...context, systemPrompt: marker })).result();
 
     expect(recordEvent).toHaveBeenCalledWith("provider.prompt.observed", observation);
-    expect(JSON.stringify({ calls: recordEvent.mock.calls, state })).not.toContain(marker);
+    // Only the fork replay body retains content; identity and events never do.
+    const { lastRequest, ...identity } = state;
+    expect(JSON.stringify({ calls: recordEvent.mock.calls, identity })).not.toContain(marker);
+    expect(lastRequest?.body).toEqual({ input: marker });
     expect(state.lastAttempt?.cachePrefix).toBeUndefined();
   });
 
@@ -208,7 +203,7 @@ describe("provider prompt state", () => {
     ).rejects.toThrow("byte-identical provider payload");
     expect(transport).toHaveBeenCalledTimes(3);
     expect(sentPayloads).toEqual([finalPayload, changedPayload]);
-    expect(JSON.stringify(state)).not.toContain("final");
+    expect(JSON.stringify({ ...state, lastRequest: undefined })).not.toContain("final");
   });
 
   it.each([
@@ -322,33 +317,17 @@ describe("provider prompt state", () => {
   });
 
   it("does not compare rejected payloads across effective context scopes", async () => {
-    const runId = "changed-context-scope";
-    const scopedState = getProviderPromptState(runId);
-    const scopedContext = { systemPrompt: "system", messages: [], tools: [] } as Context;
     const payload = { input: "same", model: model.id };
     const transport = vi.fn<StreamFn>(async (_model, _context, options) => {
       await options?.onPayload?.(payload, model);
       return createResultStream("error");
     });
-    const firstWrapped = wrapStreamFnWithProviderPromptState({
-      streamFn: transport,
-      state: scopedState,
-      effectiveContextTokenBudget: 64_000,
-    });
-    const first = await firstWrapped(model, scopedContext);
-    await first.result();
-    markLastProviderPromptContextRejected(scopedState);
+    await (await observe(state, transport, undefined, 64_000)(model, context)).result();
+    markLastProviderPromptContextRejected(state);
 
-    const secondWrapped = wrapStreamFnWithProviderPromptState({
-      streamFn: transport,
-      state: scopedState,
-      effectiveContextTokenBudget: 128_000,
-    });
-    const second = await secondWrapped(model, scopedContext);
-    await second.result();
+    await (await observe(state, transport)(model, context)).result();
 
     expect(transport).toHaveBeenCalledTimes(2);
-    clearProviderPromptState(runId);
   });
 
   it("keeps a rejected primary identity across successful auxiliary attempts", async () => {

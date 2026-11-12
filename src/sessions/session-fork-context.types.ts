@@ -1,4 +1,5 @@
 import type { AgentMessage } from "../../packages/agent-core/src/types.js";
+import type { PreparedProviderRequest } from "../agents/embedded-agent-runner/provider-prompt-state.js";
 import type { LlmBoundaryOptions } from "../agents/embedded-agent-runner/run/attempt-llm-boundary.types.js";
 import type { Context, Model } from "../llm/types.js";
 
@@ -14,4 +15,6 @@ export type SessionForkContextSnapshot = {
   sessionVersion?: number;
   boundary?: LlmBoundaryOptions;
   blockImages?: boolean;
+  /** The attempt's last provider request, which the fork replays ahead of its own suffix. */
+  preparedRequest?: PreparedProviderRequest;
 };

@@ -44,9 +44,13 @@ type ProviderPromptSnapshot = {
   };
 };
 
+/** The run's last post-hook provider request body; session forks replay it. */
+export type PreparedProviderRequest = { model: Model; body: Record<string, unknown> };
+
 export type ProviderPromptState = {
   lastAttempt?: ProviderPromptSnapshot;
   lastRejected?: ProviderPromptSnapshot;
+  lastRequest?: PreparedProviderRequest;
 };
 
 const PROVIDER_PROMPT_STATES_KEY = Symbol.for("openclaw.providerPromptStates");
@@ -60,6 +64,10 @@ export function getProviderPromptState(runId: string): ProviderPromptState {
   const state = providerPromptStates.get(runId) ?? {};
   providerPromptStates.set(runId, state);
   return state;
+}
+
+export function readPreparedProviderRequest(runId: string): PreparedProviderRequest | undefined {
+  return providerPromptStates.get(runId)?.lastRequest;
 }
 
 export function clearProviderPromptState(runId: string): void {
@@ -213,6 +221,10 @@ export function wrapStreamFnWithProviderPromptState(params: {
       onPayload: async (payload, payloadModel) => {
         const replacement = await originalOnPayload?.(payload, payloadModel);
         const finalPayload = replacement === undefined ? payload : replacement;
+        if (finalPayload && typeof finalPayload === "object" && !Array.isArray(finalPayload)) {
+          // Shallow: transports reassign top-level fields after the hook; items stay shared.
+          params.state.lastRequest = { model: payloadModel, body: { ...finalPayload } };
+        }
         if (modelRequestBodyState(observedOptions).enabled) {
           return finalPayload;
         }
